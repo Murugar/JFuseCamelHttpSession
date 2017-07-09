@@ -1,0 +1,2 @@
+# JFuseCamelHttpSession
+JFuse Camel HttpSession
