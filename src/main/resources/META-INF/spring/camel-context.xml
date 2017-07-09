@@ -1,0 +1,224 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:cxf="http://camel.apache.org/schema/cxf"
+	xsi:schemaLocation="    http://camel.apache.org/schema/cxf http://camel.apache.org/schema/cxf/camel-cxf.xsd      
+	http://www.springframework.org/schema/beans 
+	http://www.springframework.org/schema/beans/spring-beans.xsd        
+	http://camel.apache.org/schema/spring 
+	http://camel.apache.org/schema/spring/camel-spring.xsd">
+
+	<cxf:cxfEndpoint address="http://localhost:9995"
+		endpointName="th:personSoapHttpPort" id="svc" serviceName="th:personSoapHttpService"
+		wsdlURL="classpath:wsdl/businessService.wsdl" 
+		xmlns:th="http://www.redhat.com/empowered/businessService">
+		<cxf:properties>
+			<entry key="dataFormat" value="PAYLOAD" />
+		</cxf:properties>
+	</cxf:cxfEndpoint>
+
+	<bean id="setLogged" class="com.iqmsoft.camel.session.SetStatus" />
+	<bean id="storeSessionForRoute" class="com.iqmsoft.camel.session.StoreSession"></bean>
+	<camelContext id="techlab-fuse-http-session" xmlns="http://camel.apache.org/schema/spring">
+
+		<route>
+			<from uri="jetty:http://0.0.0.0:9999/ok" />
+			<removeHeaders pattern="Cookie"></removeHeaders>
+			<!-- Authentication -->
+			<setBody>
+				<constant>
+					<![CDATA[
+					      <bus:auth xmlns:bus="http://www.redhat.com/empowered/businessService">
+					         <usr>admin</usr>
+					         <pwd>pwd</pwd>
+					      </bus:auth>
+					]]>
+				</constant>
+			</setBody>
+			<setHeader headerName="operationNamespace">
+				<constant>http://www.redhat.com/empowered/businessService</constant>
+			</setHeader>
+			<setHeader headerName="operationName">
+				<constant>auth</constant>
+			</setHeader>
+			<to uri="cxf:bean:svc"></to>
+			<setHeader headerName="Cookie">
+				<simple>${headers.Set-Cookie}</simple>
+			</setHeader>
+
+
+			<!-- Calling real service -->
+
+			<setBody>
+				<constant>
+					<![CDATA[
+				      <bus:queryPerson xmlns:bus="http://www.redhat.com/empowered/businessService">
+				         <id>test</id>
+				      </bus:queryPerson>
+					]]>
+				</constant>
+			</setBody>
+
+			<setHeader headerName="operationNamespace">
+				<constant>http://www.redhat.com/empowered/businessService</constant>
+			</setHeader>
+			<setHeader headerName="operationName">
+				<constant>getPersonOp</constant>
+			</setHeader>
+			<to uri="cxf:bean:svc"></to>
+		</route>
+
+
+
+
+		<route>
+			<from uri="jetty:http://0.0.0.0:9999/ko" />
+			<removeHeaders pattern="Cookie"></removeHeaders>
+			<!-- Authentication -->
+			<setBody>
+				<constant>
+					<![CDATA[
+					      <bus:auth xmlns:bus="http://www.redhat.com/empowered/businessService">
+					         <usr>admin</usr>
+					         <pwd>WRONG_PWD</pwd>
+					      </bus:auth>
+					]]>
+				</constant>
+			</setBody>
+			<setHeader headerName="operationNamespace">
+				<constant>http://www.redhat.com/empowered/businessService</constant>
+			</setHeader>
+			<setHeader headerName="operationName">
+				<constant>auth</constant>
+			</setHeader>
+			<to uri="cxf:bean:svc"></to>
+			<setHeader headerName="Cookie">
+				<simple>${headers.Set-Cookie}</simple>
+			</setHeader>
+
+			<!-- Calling real service -->
+			<setBody>
+				<constant>
+					<![CDATA[
+				      <bus:queryPerson xmlns:bus="http://www.redhat.com/empowered/businessService">
+				         <id>test</id>
+				      </bus:queryPerson>
+					]]>
+				</constant>
+			</setBody>
+
+			<setHeader headerName="operationNamespace">
+				<constant>http://www.redhat.com/empowered/businessService</constant>
+			</setHeader>
+			<setHeader headerName="operationName">
+				<constant>getPersonOp</constant>
+			</setHeader>
+			<to uri="cxf:bean:svc"></to>
+		</route>
+
+
+		<route>
+			<from uri="jetty:http://0.0.0.0:9995/?sessionSupport=true" />
+			<process ref="storeSessionForRoute"></process>
+			<convertBodyTo type="org.w3c.dom.Document"></convertBodyTo>
+			<log message="${headers}]"></log>
+			<choice>
+				<when>
+					<xpath saxon="true">count(//*:auth)>0</xpath>
+					<to uri="direct:auth"></to>
+				</when>
+				<otherwise>
+					<to uri="direct:getPerson"></to>
+				</otherwise>
+			</choice>
+		</route>
+
+		<route>
+			<from uri="direct:getPerson" />
+			<choice>
+				<when>
+					<simple>${exchangeProperty.session.getAttribute('logged')}</simple>
+					<setBody>
+						<constant>
+						<![CDATA[
+						<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+							xmlns:bus="http://www.redhat.com/empowered/businessService">
+						   <soapenv:Header />
+						   <soapenv:Body>
+						      <bus:person>
+						         <id>1</id>
+						         <name>Test1</name>
+						         <age>15</age>
+						      </bus:person>
+						   </soapenv:Body>
+						</soapenv:Envelope>]]>
+						</constant>
+					</setBody>
+				</when>
+				<otherwise>
+					<setBody>
+					<constant>
+					<![CDATA[
+					<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsi="http://www.w3.org/1999/XMLSchema-instance" xmlns:xsd="http://www.w3.org/1999/XMLSchema">
+   
+					   <SOAP-ENV:Body>
+					   
+					      <SOAP-ENV:Fault>
+					         <faultcode xsi:type="xsd:string">SOAP-ENV:Client</faultcode>
+							 
+					         <faultstring xsi:type="xsd:string">
+					            FORBIDDEN
+					         </faultstring>
+							 
+					      </SOAP-ENV:Fault>
+					   </SOAP-ENV:Body>
+					   
+					</SOAP-ENV:Envelope>
+					]]></constant>
+					</setBody>
+				</otherwise>
+			</choice>
+
+		</route>
+
+		<route>
+			<from uri="direct:auth"></from>
+			<log message="${body}"></log>
+			<choice>
+				<when>
+					<xpath saxon="true">//*:usr = 'admin' and //*:pwd = 'pwd'</xpath>
+					<process ref="setLogged" />
+					<setBody>
+						<constant><![CDATA[
+						<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:bus="http://www.redhat.com/empowered/businessService">
+						   <soapenv:Header/>
+						   <soapenv:Body>
+						      <bus:authResponse>
+						         <out>LOGGED_IN</out>
+						      </bus:authResponse>
+						   </soapenv:Body>
+						</soapenv:Envelope>
+						]]></constant>
+					</setBody>
+				</when>
+				<otherwise>
+					<setBody>
+						<constant>
+						<![CDATA[
+						<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:bus="http://www.redhat.com/empowered/businessService">
+						   <soapenv:Header/>
+						   <soapenv:Body>
+						      <bus:authResponse>
+						         <out>AUTH_FAILED</out>
+						      </bus:authResponse>
+						   </soapenv:Body>
+						</soapenv:Envelope>
+						]]>
+						</constant>
+					</setBody>
+				</otherwise>
+			</choice>
+		</route>
+	</camelContext>
+</beans>
